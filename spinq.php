@@ -8,13 +8,22 @@ set_error_handler(function($errno, $errstr, $errfile, $errline) {
 });
 
 
-
 class Debug {
 	protected $tag;
 
 
 	protected static function ansi($c, $msg) { 
-		return "\033[{$c}m{$msg}\033[0m"; 
+		$logger=ini_get('error_log');
+		if(empty($logger))
+		{
+			// color only console output
+			return "\033[{$c}m{$msg}\033[0m";
+		}
+		else
+		{
+			// this probably gets written to a file or syslog
+			return $msg;
+		}
 	}
 
 
