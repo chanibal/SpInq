@@ -88,10 +88,18 @@ class Router {
 		// TODO: return class instance that has a toString for that?
 	}
 
+	/**
+	 * Registers an action to this router
+	 * @param string $actionName The name of the action that will be registered, must be unique
+	 * @param callable $action A callable with arguments: array $args, Router $router
+	 * @return void
+	 */
 	public function register($actionName, $action) {
 		// TODO: array $defaultArgs = []
 		if(!is_callable($action))
 			throw new \InvalidArgumentException('Action not callable');
+		if(isset($this->actions[$actionName]))
+			throw new \InvalidArgumentException('Action name already used: '.$actionName);
 		$this->debug->dump($actionName, 'registering action');
 		$this->actions[$actionName] = $action;
 	}
@@ -170,15 +178,17 @@ function guid() {
 
 abstract class View {
 	public function headers() { return []; }
-	public function httpCode() { return 200; }
+	protected $httpCode = 200;
+	public function httpCode() { $this->httpCode; }
 	public abstract function render();
 	public function __toString() { return $this->render(); }
 }
 
 class JSONView extends View {
 	protected $object;
-	public function __construct($object) {
+	public function __construct($object, $httpCode = 200) {
 		$this->object = $object;
+		$this->httpCode = $httpCode;
 	}
 
 	public function headers() { return [ 'Content-Type' => 'application/json; charset=utf-8' ]; }
@@ -189,15 +199,12 @@ class HTMLView extends View {
 
 	protected $layouts = [];
 	protected $arguments;
-	protected $httpCode;
 
 	public function __construct($template, $arguments, $httpCode = 200) {
 		$this->wrapIn($template);
 		$this->arguments = $arguments;
 		$this->httpCode = $httpCode;
 	}
-
-	public function httpCode() { return $this->httpCode; }
 
 	public function headers() { return [ 'Content-Type' => 'text/html; charset=utf-8' ]; }
 
@@ -233,11 +240,19 @@ function executeCurrentAction(Router $router) {
 
 	if(isset($GLOBALS['argv'])) {
 		$argv = $GLOBALS['argv']; 
-		$debug->dump($argv);
-		if(count($argv) < 2)
+		$debug->dump($argv, "argv");
+		if(!isset($argv[1]))
 			throw new RuntimeException('CLI syntax <script> <action> [<arugments in json form>]');
-		$args = count($argv > 2) ? json_decode($argv[2], true) : [];
-		var_dump($args);
+		if(isset($argv[2])) {
+			$args = json_decode($argv[2], true);
+			$errmsg = json_last_error_msg();
+			if(json_last_error())
+				throw new RuntimeException("Could not parse argument json string: {$err}, json='{$argv[2]}'.");
+		}
+		else {
+			$args = [];
+		}
+		$debug->dump($args, "parsed args");
 		$args['action'] = $argv[1];
 		$debug->dump($args, 'executing from cli');
 	}
