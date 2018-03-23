@@ -70,13 +70,65 @@ class ActionNotFoundException extends \RuntimeException {}
 
 class Router {
 
+	/**
+	 * @var string
+	 */
 	protected $baseuri;
+
+	/**
+	 * @var callable[] 
+	 */
 	protected $actions;
+
+	/**
+	 * @var Debug
+	 */
 	protected $debug;
 
-	public function __construct($baseuri) {
-		$this->baseuri = $baseuri;
+	/**
+	 * Guessing a base uri when none was provided.
+	 * Use only when desperate.
+	 */
+	protected function guessBaseURI() {
+		if(!isset($_SERVER['HTTP_HOST'])) {
+			$this->debug->info("Looks like this is a non-web script, returning a dummy address.");
+			return 'http://localhost/';
+		}
+
+		$protocol = (@$_SERVER['HTTPS'] == 'on' || @$_SERVER['REQUEST_SCHEME'] == 'https') ? 'https' : 'http';
+		$this->debug->info("Guessed protocol $protocol");
+
+		$hostAndPort = $_SERVER['HTTP_HOST'] ?: (
+			(isset($_SERVER['SERVER_PORT']) && @$_SERVER['SERVER_PORT'] != 80) 
+				? "localhost:{$_SERVER['SERVER_PORT']}" : 'localhost');
+		$this->debug->info("Guessed host and port: $hostAndPort");
+
+		$path = parse_url(@$_SERVER['REQUEST_URI'] ?: '/', PHP_URL_PATH);
+		$this->debug->info("Guessed path: $path");
+
+		if($path[strlen($path) - 1] != '/') {
+			$path = dirname($path);
+			$this->debug->info("Guessed path with removed last element: $path");
+		}
+		if($path[strlen($path) - 1] != '/') {
+			$path .= '/';
+		}
+
+		return "{$protocol}://{$hostAndPort}{$path}";
+	}
+
+	public function __construct($baseuri = null) {
 		$this->debug = new Debug('Router');
+		if ($baseuri) {
+			$this->baseuri = $baseuri;
+		}
+		else {
+			$this->baseuri = $this->guessBaseURI();
+			$this->debug->warn("No baseuri provided, had to guess: '{$this->baseuri}'");
+		}
+
+
+
 	}
 
 	public function link(array $actionAndArgs = [], $absolute = false) {
@@ -192,7 +244,7 @@ class JSONView extends View {
 	}
 
 	public function headers() { return [ 'Content-Type' => 'application/json; charset=utf-8' ]; }
-	public function render() { return json_encode($this->object); }
+	public function render() { return json_encode($this->object, JSON_UNESCAPED_SLASHES); }
 }
 
 class HTMLView extends View {
