@@ -48,9 +48,7 @@ class Debug {
 
 
 	public function dump($obj, $label = null) { 
-		ob_start();
-		var_dump($obj);
-		$msg = ob_get_clean();
+		$msg = var_export($obj, true);
 		if($label) {
 			$msg = "$label $msg";
 		}
