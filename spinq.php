@@ -282,6 +282,31 @@ class HTMLView extends View {
 	}
 }
 
+
+class RedirectView extends View {
+
+	protected $uri;
+	protected $httpCode;
+	protected $message;
+
+	public function __construct($uri, $httpCode = 302, $message = null) {
+		$this->uri = $uri;
+		$this->httpCode = $httpCode;
+		$this->message = $message;
+	}
+
+	public function render() {
+		$debug = new Debug('RedirectView');
+		$debug->info("Redirecting to '{$this->uri}' with HTTP code {$this->httpCode} and message = '{$this->message}'");
+		header("location: {$this->uri}", $this->httpCode);
+		if($this->message) {
+			print $this->message;
+		}
+	}
+
+}
+
+
 /**
  * @return View
  */
