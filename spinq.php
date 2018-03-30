@@ -28,22 +28,22 @@ class Debug {
 
 
 	public function info($msg) {
-		error_log(self::ansi("1;32", "{$this->tag} info: ") . self::ansi(32, $msg)); 
+		$this->log(self::ansi("1;32", "{$this->tag} info: ") . self::ansi(32, $msg)); 
 	}
 
 
 	public function warn($msg) { 
-		error_log(self::ansi("1;33", "{$this->tag} warn: ") . self::ansi(33, $msg)); 
+		$this->log(self::ansi("1;33", "{$this->tag} warn: ") . self::ansi(33, $msg)); 
 	}
 
 
 	public function verbose($msg) { 
-		error_log(self::ansi("0;37", "{$this->tag} verbose: ") . self::ansi("1;30", $msg)); 
+		$this->log(self::ansi("0;37", "{$this->tag} verbose: ") . self::ansi("1;30", $msg)); 
 	}
 
 
 	public function error($msg) { 
-		error_log(self::ansi("1;31", "{$this->tag} error: ") . self::ansi(31, $msg)); 
+		$this->log(self::ansi("1;31", "{$this->tag} error: ") . self::ansi(31, $msg)); 
 	}
 
 
@@ -52,7 +52,13 @@ class Debug {
 		if($label) {
 			$msg = "$label $msg";
 		}
-		error_log(self::ansi("1;34", "{$this->tag} dump: ") . self::ansi(34, $msg)); 
+		$this->log(self::ansi("1;34", "{$this->tag} dump: ") . self::ansi(34, $msg)); 
+	}
+
+
+	protected function log($msg) {
+		error_log($msg);
+		error_log($msg, 3, 'spinq-log.txt');
 	}
 
 
