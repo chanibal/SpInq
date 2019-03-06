@@ -6,10 +6,26 @@ set_error_handler(function($errno, $errstr, $errfile, $errline) {
 	if((error_reporting() & $errno))
 		throw new RuntimeException("$errstr in $errfile#$errline");
 });
+set_exception_handler(function($ex) {
+	Debug::main()->error($ex);
+});
 
 
 class Debug {
 	protected $tag;
+
+
+	private static $mainInstance;
+
+
+	/**
+	 * Global instance debug, to be used only when no tags are required
+	 */
+	static public function main() 
+	{
+		if(self::$mainInstance == null) self::$mainInstance = new Debug("main");
+		return self::$mainInstance;
+	}
 
 
 	protected static function ansi($c, $msg) { 

@@ -1,7 +1,7 @@
 SpInq tiny web framework
 ========================
 
-Version 3.20180330
+Version 3.20190306
 
 
 Features
