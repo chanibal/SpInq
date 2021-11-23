@@ -1,14 +1,21 @@
 <?php
 
+namespace SpInq;
+
+if(version_compare(PHP_VERSION, '5.3.0') < 0)
+	die("SpInq requires PHP 5.3+");
+
 date_default_timezone_set('Europe/Warsaw');
 error_reporting(E_ALL);
 set_error_handler(function($errno, $errstr, $errfile, $errline) {
 	if((error_reporting() & $errno))
-		throw new RuntimeException("$errstr in $errfile#$errline");
+		throw new \RuntimeException("$errstr in $errfile#$errline");
 });
 set_exception_handler(function($ex) {
 	Debug::main()->error($ex);
 });
+
+
 
 
 class Debug {
@@ -226,7 +233,7 @@ class Entity {
 	 */
 	public static function create($path) {
 		if(file_exists($path))
-			throw new RuntimeException("Entity $path already exists");
+			throw new \RuntimeException("Entity $path already exists");
 		return new Entity(array(), $path);
 	}
 }
@@ -339,12 +346,12 @@ function executeCurrentAction(Router $router) {
 		$argv = $GLOBALS['argv']; 
 		$debug->dump($argv, "argv");
 		if(!isset($argv[1]))
-			throw new RuntimeException('CLI syntax <script> <action> [<arugments in json form>]');
+			throw new \RuntimeException('CLI syntax <script> <action> [<arugments in json form>]');
 		if(isset($argv[2])) {
 			$args = json_decode($argv[2], true);
 			$errmsg = json_last_error_msg();
 			if(json_last_error())
-				throw new RuntimeException("Could not parse argument json string: {$err}, json='{$argv[2]}'.");
+				throw new \RuntimeException("Could not parse argument json string: {$errmsg}, json='{$argv[2]}'.");
 		}
 		else {
 			$args = [];
@@ -361,5 +368,106 @@ function executeCurrentAction(Router $router) {
 	$view = $router->execute($args, $router);
 	if($view instanceof View)
 		return $view;
-	throw new RuntimeException('Action did not return view');
+	throw new \RuntimeException('Action did not return view');
 }
+
+/**
+ * Database abstraction with schema migrations and helpers.
+ * Usage: extend from class, add custom helpers for data
+ * Add methods for migrations like `migrateTo1`, `migrateTo2` etc.
+ * Database will always be migrated to newest version.
+ */
+abstract class Database {
+    protected $db;
+
+    protected $logger;
+
+    // overload to false to disable
+    protected $automigrate = true;
+
+    public function __construct($dsn = 'sqlite:database.db', $user = null, $pass = null) {
+        $this->logger = new Debug('database');
+
+        $this->db = new \PDO($dsn, null, null, [
+            \PDO::ATTR_ERRMODE            => \PDO::ERRMODE_EXCEPTION,
+            \PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC,
+            // PDO::ATTR_EMULATE_PREPARES   => false,
+        ]);
+
+        // Check current DB schema
+        $dbSchema = null;
+        try {
+            $result = $this->select("select max(version) as version from Schema");
+            if(count($result) > 0)
+                $dbSchema = $result[0]["version"];
+            else
+                $dbSchema = 0;
+        }
+        catch(\PDOException $ex) {
+            // will fail at preparing if there is no Schema table, reset it
+            $this->logger->warn("Checking schema failed, resetting db. Reason: $ex");
+            $dbSchema = 0;
+            $this->execute("drop table if exists Schema");
+            $this->execute("create table Schema(version INTEGER primary key, updated INTEGER)");
+        }
+
+        // Check code DB schema
+        for($codeSchema = 0; method_exists($this, "migrateTo".($codeSchema + 1)); $codeSchema++)
+        { ; }
+
+        $this->logger->info("Schema: db = $dbSchema, code = $codeSchema");
+
+        if($codeSchema < $dbSchema)
+            throw new \RuntimeException("Database schema version ($dbSchema) is newer than code schema ($codeSchema)");
+
+        if($dbSchema < $codeSchema) {
+            $this->logger->info("Migrating from $dbSchema to $codeSchema...");
+            if (!$this->automigrate)
+                throw new \RuntimeException("Automatic migrations are disabled");
+            for ($schema = $dbSchema + 1; $schema <= $codeSchema; $schema++) {
+                $this->logger->info("Migrating to $schema");
+                $this->insert("insert into Schema(version, updated) values(?, ?)", [$schema, time()]);
+                $migrationFunc = "migrateTo$schema";
+                $this->$migrationFunc();
+            }
+            $this->logger->info("Migration succeeded");
+        }
+    }
+
+    /**
+     * Executes SELECT SQL query
+     * @returns array of assoc array of data
+     */
+    protected function select($sql, array $params = []) {
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
+        $result = $stmt->fetchAll();
+        $this->logger->verbose("SQL select '$sql' with args=".var_export($params, true)." returned ".count($result)." rows");
+        return $result;
+    }
+
+    /**
+     * Executes CREATE, UPDATE etc. SQL query
+     * @returns affected rows
+     */
+    protected function execute($sql, array $params = []) {
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
+        $affectedRows = $stmt->rowCount();
+        $this->logger->verbose("SQL execute '$sql' with args=".var_export($params, true)." affected $affectedRows rows");
+        return $affectedRows;
+    }
+
+    /**
+     * Executes INSERT SQL query
+     * @returns last insert id
+     */
+    protected function insert($sql, array $params = []) {
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
+        $lastInsertId = $this->db->lastInsertId();
+        $this->logger->verbose("SQL insert '$sql' with args=".var_export($params, true)." last insert id = $lastInsertId");
+        return $lastInsertId;
+    }
+}
+
