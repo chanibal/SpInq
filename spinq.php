@@ -108,6 +108,11 @@ class Router {
 	protected $actions;
 
 	/**
+	 * @var callable[]
+	 */
+	protected $actionProblemMatcher;
+
+	/**
 	 * @var Debug
 	 */
 	protected $debug;
@@ -171,9 +176,10 @@ class Router {
 	 * Registers an action to this router
 	 * @param string $actionName The name of the action that will be registered, must be unique
 	 * @param callable $action A callable with arguments: array $args, Router $router
+	 * @param callable? $actionProblemMatcher A Callable that will translate any exceptions from calling this action to a View instance, defaults to rfc7807 problem+json.
 	 * @return void
 	 */
-	public function register($actionName, $action) {
+	public function register($actionName, $action, $actionProblemMatcher = null) {
 		// TODO: array $defaultArgs = []
 		if(!is_callable($action))
 			throw new \InvalidArgumentException('Action not callable');
@@ -181,18 +187,32 @@ class Router {
 			throw new \InvalidArgumentException('Action name already used: '.$actionName);
 		$this->debug->dump($actionName, 'registering action');
 		$this->actions[$actionName] = $action;
+		if($actionProblemMatcher != null)
+			$this->actionProblemMatcher[$actionName] = $actionProblemMatcher;
 	}
 
 	public function execute($request) {
 		if(!isset($request['action']))
-            throw new ActionNotFoundException('No action requested');
-        $actionName = $request['action'];
+			throw new ActionNotFoundException('No action requested');
+		$actionName = $request['action'];
 
-        if(!isset($this->actions[$actionName]))
-            throw new ActionNotFoundException("No action of name $actionName found");
-        $action = $this->actions[$actionName];
+		if(!isset($this->actions[$actionName]))
+			throw new ActionNotFoundException("No action of name $actionName found");
+		$action = $this->actions[$actionName];
 
-        return $action($request, $this);
+		return $action($request, $this);
+	}
+
+	public function getMatchedProblemViewForException($request, \Exception $ex) {
+		$actionName = @$request['action'];
+		if(!isset($this->actionProblemMatcher[$actionName])) {
+			return ProblemDetailsView::fromException($ex);
+		}
+		else {
+			$problemView = $this->actionProblemMatcher[$actionName]($ex);
+			if ($problemView == null || !($problemView instanceof View))
+				return new ProblemDetailsView("problem-matcher-problem", "Problem matcher did not return a view");
+		}
 	}
 
 }
@@ -258,7 +278,7 @@ function guid() {
 abstract class View {
 	public function headers() { return []; }
 	protected $httpCode = 200;
-	public function httpCode() { $this->httpCode; }
+	public function httpCode() { return $this->httpCode; }
 	public abstract function render();
 	public function __toString() { return $this->render(); }
 }
@@ -272,6 +292,20 @@ class JSONView extends View {
 
 	public function headers() { return [ 'Content-Type' => 'application/json; charset=utf-8' ]; }
 	public function render() { return json_encode($this->object, JSON_UNESCAPED_SLASHES); }
+}
+
+
+class ProblemDetailsView extends JSONView {
+	public function __construct($type, $title, $httpCode = 500, $extended = []) {
+		$this->object = ["type" => $type, "title" => $title] + $extended;
+		$this->httpCode = $httpCode;
+	}
+
+	public static function fromException(\Exception $ex, $httpCode = 500) {
+		return new ProblemDetailsView('https://github.com/chanibal/spinq/problems/' . get_class($ex), $ex->getMessage(), $httpCode, [ "trace" => $ex->getTrace() ]);
+	}
+
+	public function headers() { return [ 'Content-Type' => 'application/problem+json; charset=utf-8' ]; }
 }
 
 class HTMLView extends View {
@@ -337,38 +371,57 @@ class RedirectView extends View {
 
 
 /**
+ * Helper for executing a current action from HTTP or CLI
  * @return View
  */
-function executeCurrentAction(Router $router) {
+function executeCurrentAction(Router $router, $defaultArgs = []) {
 	$debug = new Debug(__FUNCTION__);
 
-	if(isset($GLOBALS['argv'])) {
-		$argv = $GLOBALS['argv']; 
-		$debug->dump($argv, "argv");
-		if(!isset($argv[1]))
-			throw new \RuntimeException('CLI syntax <script> <action> [<arugments in json form>]');
-		if(isset($argv[2])) {
-			$args = json_decode($argv[2], true);
-			$errmsg = json_last_error_msg();
-			if(json_last_error())
-				throw new \RuntimeException("Could not parse argument json string: {$errmsg}, json='{$argv[2]}'.");
+	$headers = [];
+	$contents = null;
+
+	try {
+		if(isset($GLOBALS['argv'])) {
+			$argv = $GLOBALS['argv']; 
+			$debug->dump($argv, "argv");
+			if(!isset($argv[1]))
+				throw new \RuntimeException('CLI syntax <script> <action> [<arugments in json form>]');
+			if(isset($argv[2])) {
+				$args = json_decode($argv[2], true);
+				$errmsg = json_last_error_msg();
+				if(json_last_error())
+					throw new \RuntimeException("Could not parse argument json string: {$errmsg}, json='{$argv[2]}'.");
+			}
+			else {
+				$args = [];
+			}
+			$debug->dump($args, "parsed args");
+			$args['action'] = $argv[1];
+			$debug->dump($args, 'executing from cli');
 		}
 		else {
-			$args = [];
+			$args=$_GET;
+			$debug->dump($args, 'executing from web');
 		}
-		$debug->dump($args, "parsed args");
-		$args['action'] = $argv[1];
-		$debug->dump($args, 'executing from cli');
+
+		if(empty($args))
+			$args = $defaultArgs;
+
+		$view = $router->execute($args, $router);
+		if(!($view instanceof View))
+			throw new \RuntimeException('Action did not return view');
+		$headers = $view->headers();
+		$contents = $view->render();
 	}
-	else {
-		$args=$_GET + $_POST;
-		$debug->dump($args, 'executing from web');
+	catch(\Exception $ex) {
+		$view = $router->getMatchedProblemViewForException($args, $ex);
+		$headers = $view->headers();
+		$contents = $view->render();
 	}
 
-	$view = $router->execute($args, $router);
-	if($view instanceof View)
-		return $view;
-	throw new \RuntimeException('Action did not return view');
+	foreach ($headers as $key => $value)
+		header("$key: $value", true, $view->httpCode());
+	echo($contents);
 }
 
 /**
@@ -469,5 +522,34 @@ abstract class Database {
         $this->logger->verbose("SQL insert '$sql' with args=".var_export($params, true)." last insert id = $lastInsertId");
         return $lastInsertId;
     }
+
+	/**
+	 * Executes INSERT SQL query on table with column names in keys and values in values of the array
+	 * Values will be escaped automatically unless key is prepended with '!'
+	 * @example insertAutomatic('Tab', [v=>1, s=>"asdf", "!updated"=>"datetime(now)"])
+	 * @returns last insert id
+	 */
+	protected function insertAutomatic($table, array $values) {
+		$columns=[];
+		$bindings=[];
+		$params=[];
+		foreach ($values as $key => $value) {
+			if($key[0] == '!') 
+			{
+				$columns[] = substr($key, 1);
+				$bindings[] = $value;
+			}
+			else
+			{
+				$columns[] = $key;
+				$bindings[] = ":$key";
+				$params[] = $value;
+			}
+		}
+		
+		$sql = "INSERT INTO $table(" . join(', ', $columns) . ') values('. join(', ', $bindings) . ')';
+		$this->logger->verbose("Generated SQL $sql from: ".json_encode($values));
+		return $this->insert($sql, $params);
+	}
 }
 

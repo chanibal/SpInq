@@ -1,7 +1,7 @@
 SpInq tiny web framework
 ========================
 
-Version 3.20211123
+Version 3.20220704
 
 
 Features
@@ -22,6 +22,12 @@ require 'spinq.php';
 
 Changelog
 ---------
+
+Version 3.20220704
+- Problem matchers
+- Problem+Json RFC 7807 implementation
+- Better executeCurrentAction helper
+- Database has an insert helper
 
 Version 3.20211123:
 - Database class
