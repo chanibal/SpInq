@@ -205,14 +205,17 @@ class Router {
 
 	public function getMatchedProblemViewForException($request, \Exception $ex) {
 		$actionName = @$request['action'];
+		
 		if(!isset($this->actionProblemMatcher[$actionName])) {
-			return ProblemDetailsView::fromException($ex);
+			$problemView = ProblemDetailsView::fromException($ex);
 		}
 		else {
 			$problemView = $this->actionProblemMatcher[$actionName]($ex);
-			if ($problemView == null || !($problemView instanceof View))
-				return new ProblemDetailsView("problem-matcher-problem", "Problem matcher did not return a view");
 		}
+
+		if ($problemView == null || !($problemView instanceof View))
+			return new ProblemDetailsView("problem-matcher-problem", "Problem matcher did not return a view");
+		return $problemView;
 	}
 
 }
