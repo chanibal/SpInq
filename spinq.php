@@ -220,49 +220,6 @@ class Router {
 
 }
 
-
-// TODO: needs flocking
-class Entity {
-	protected $path;
-	protected $data;
-
-	public function save() {
-		$serialized = serialize($this->data);
-		file_put_contents($this->path, $serialized);
-	}
-
-	protected function __construct(array $data, $path) {
-		$this->data = $data;
-		$this->path = $path;
-	}
-
-	public function __get($key) { return $this->data[$key]; }
-	public function __set($key, $val) { $this->data[$key] = $val; }
-
-	/**
-	 * @return Entity
-	 */
-	public static function load($path) {
-		if(!file_exists($path))
-			return null;
-		$serialized = file_get_contents($path);
-		$data = unserialize($serialized);
-		$entity = new Entity($data, $path);
-		return $entity;
-	}
-
-	/**
-	 * @return Entity
-	 */
-	public static function create($path) {
-		if(file_exists($path))
-			throw new \RuntimeException("Entity $path already exists");
-		return new Entity(array(), $path);
-	}
-}
-
-
-
 function guid() {
 	return sprintf(
 		'%04X%04X-%04X-%04X-%04X-%04X%04X%04X', 
