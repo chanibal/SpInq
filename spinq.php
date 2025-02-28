@@ -287,21 +287,16 @@ abstract class View {
 }
 
 class JSONView extends View {
-	protected $object;
-	public function __construct($object, $httpCode = 200) {
-		$this->object = $object;
-		$this->httpCode = $httpCode;
-	}
-
-	public function headers() { return [ 'Content-Type' => 'application/json; charset=utf-8' ]; }
-	public function render() { return json_encode($this->object, JSON_UNESCAPED_SLASHES); }
+	public function __construct(protected mixed $object, int $httpCode = 200, protected ?string $jsonp = null) { $this->httpCode = $httpCode; }
+	public function headers() { return [ 'Content-Type' => ($this->jsonp !== null) ? 'application/javascript; charset=utf-8' : 'application/json; charset=utf-8' ]; }
+	public function render() { $j = json_encode($this->object, JSON_UNESCAPED_SLASHES); return ($this->jsonp !== null) ? "{$this->jsonp}($j);" : $j;}
 }
 
 
 class ProblemDetailsView extends JSONView {
 	public function __construct($type, $title, $httpCode = 500, $extended = []) {
-		$this->object = ["type" => $type, "title" => $title] + $extended;
-		$this->httpCode = $httpCode;
+		$object = ["type" => $type, "title" => $title] + $extended;
+		parent::__construct($object, $httpCode);
 	}
 
 	public static function fromException(\Exception $ex, $httpCode = 500) {
