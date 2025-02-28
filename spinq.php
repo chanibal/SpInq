@@ -341,6 +341,10 @@ class HTMLView extends View {
 		$textEscaped = htmlentities($text);
 		return "<a href=\"{$urlEscaped}\">{$textEscaped}</a>";
 	}
+
+	public function escape($text) {
+		return htmlentities($text);
+	}
 }
 
 
@@ -489,12 +493,25 @@ abstract class Database {
      * Executes SELECT SQL query
      * @returns array of assoc array of data
      */
-    protected function select($sql, array $params = []) {
+    protected function select($sql, array $params = [], ?string $into = null) {
         $stmt = $this->db->prepare($sql);
-        $stmt->execute($params);
+        if(!$stmt->execute($params))
+			throw new \RuntimeException("Could not execute sql '$sql'");
+		if($into) {
+			$stmt->setFetchMode(\PDO::FETCH_CLASS, $into);
+		}
         $result = $stmt->fetchAll();
-        $this->logger->verbose("SQL select '$sql' with args=".var_export($params, true)." returned ".count($result)." rows");
+        $this->logger->verbose("SQL select '$sql' with args=".var_export($params, true)." returned ".count($result)." rows into='$into'");
         return $result;
+    }
+
+    protected function selectOne(string $sql, array $params = [], ?string $into = null) {
+        $results = $this->select($sql, $params, $into);
+
+        if(count($results) != 1)
+            throw new \RuntimeException("Could not find row");
+        else
+            return $results[0];
     }
 
     /**
